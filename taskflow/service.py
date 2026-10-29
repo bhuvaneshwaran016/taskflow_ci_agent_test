@@ -35,7 +35,11 @@ class TaskFlowService:
         if not name:
             raise InvalidInput("name is required")
 
-        # BUG: duplicate names are accepted.
+        # Check if the user already exists in the store
+        for item in self.store.users.values():
+            if item['name'].lower() == name.lower():
+                raise InvalidInput("already exists")
+
         return self.store.add_user(name)
 
     def create_project(self, name, owner_id):
@@ -103,7 +107,11 @@ class TaskFlowService:
         if new_status not in TRANSITIONS[task["status"]]:
             raise InvalidInput("invalid status transition")
 
-        # BUG: users outside the project can modify its tasks.
+        # Validate if actor_id is in the project of the task
+        project = self._project(task["project_id"])
+        if project["owner_id"] != actor_id:
+            raise Forbidden("only project owner can change status")
+
         task["status"] = new_status
         return task
 
@@ -122,7 +130,7 @@ class TaskFlowService:
         return task
 
     def list_tasks(self, project_id, actor_id, status=None,
-                   priority=None, offset=0, limit=20):
+                    priority=None, offset=0, limit=20):
         self._project(project_id)
 
         if actor_id not in self.store.users:
@@ -136,14 +144,14 @@ class TaskFlowService:
             if t["project_id"] == project_id
         ]
 
-        # BUG: pagination occurs before filtering.
-        tasks = tasks[offset:offset + limit]
-
         if status is not None:
             tasks = [t for t in tasks if t["status"] == status]
 
         if priority is not None:
             tasks = [t for t in tasks if t["priority"] == priority]
+
+        # Ensure filters are applied before pagination
+        tasks = tasks[offset:offset + limit]
 
         return tasks
 
@@ -177,10 +185,10 @@ class TaskFlowService:
             raise InvalidInput("query is required")
 
         q = query.strip().lower()
-        # BUG: search ignores task description and only matches title.
+        # FIX: search should consider both title and description for matching.
         return [
             t for t in self.store.tasks.values()
-            if t["project_id"] == project_id and q in t["title"].lower()
+            if (q in t["title"].lower() or q in (t.get("description") or "").lower())
         ]
 
     def filter_tasks_by_priority(self, project_id, actor_id, priority):
@@ -189,11 +197,10 @@ class TaskFlowService:
             raise NotFound("actor not found")
 
         priority_str = str(priority).strip().lower()
-        # BUG: high only includes priority 1 (misses priority 2), and low only includes 5 (misses 4).
         named_map = {
-            "high": {1},
+            "high": {1, 2},
             "medium": {3},
-            "low": {5}
+            "low": {4, 5}
         }
 
         if priority_str in named_map:
@@ -233,7 +240,7 @@ class TaskFlowService:
             if t["project_id"] == project_id
             and t["due_date"] is not None
             and t["status"] != "done"
-            and t["due_date"] <= ref_date
+            and t["due_date"] < ref_date
         ]
 
     def get_tasks_due_within(self, project_id, actor_id, days, as_of_date=None):
@@ -284,8 +291,8 @@ class TaskFlowService:
         completed = len([t for t in tasks if t["status"] == "done"])
         pending = len([t for t in tasks if t["status"] in ("todo", "in_progress")])
 
-        # BUG: completion percentage calculation omits multiplying by 100.
-        completion_percentage = round(completed / total, 2) if total > 0 else 0.0
+        # Corrected calculation for completion percentage
+        completion_percentage = round((completed / total) * 100, 2) if total > 0 else 0.0
 
         return {
             "total": total,
