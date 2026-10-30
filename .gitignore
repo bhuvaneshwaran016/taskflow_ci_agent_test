@@ -2,5 +2,18 @@
 *.py[cod]
 .pytest_cache/
 .venv/
+venv/
+env/
 .env
 *.db
+
+# Coverage & test artifacts
+.coverage
+htmlcov/
+*.log
+
+# Editor & OS settings
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
